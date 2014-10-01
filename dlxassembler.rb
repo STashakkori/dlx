@@ -22,8 +22,10 @@ include Rsec::Helpers
 
 # Main - class that calls most of the methods involved in the dlxassembler program.
 class Main
-  @@instructionmap = Hash.new{|hsh,key|hsh[key] = {}}
+  @@instructionmap = Hash.new{|hash,key|hash[key] = {}}
   @@dlxfiletable = {}
+  @@linestruct = Hash.new{|hash,key|hash[key] = {}}
+  @@firstpasstables = Hash.new{|hash,key|hash[key] = {}}
 
   # Getter method for the instructionmap datastructure
   def instructionmap
@@ -32,6 +34,14 @@ class Main
 
   def filemap
     @@dlxfiletable
+  end
+
+  def linestruct
+    @@linestruct
+  end
+
+  def symboltables
+    @@firstpasstables
   end
 
   # Method that prints a beggining prompt for the assembler.
@@ -81,9 +91,9 @@ class Main
 	File.open(ARGV[i], 'r') do |f1| # Open Itypes file.
 	while line = f1.gets
             opcode,encoding = line.chomp.split("\t")
-            self.instructionmap[opcode].store "encoding",encoding.to_i
-            self.instructionmap[opcode].store "type","i"
-            self.instructionmap[opcode].store "functioncode",-1
+            self.instructionmap[opcode].store("encoding",encoding.to_i)
+            self.instructionmap[opcode].store("type","i")
+            self.instructionmap[opcode].store("functioncode",-1)
             itypecount += 1
           end
         end
@@ -93,9 +103,9 @@ class Main
 	File.open(ARGV[i], 'r') do |f1| # Open Jtypes file.
 	while line = f1.gets
             opcode,encoding = line.chomp.split("\t")
-            self.instructionmap[opcode].store "encoding",encoding.to_i
-            self.instructionmap[opcode].store "type","j"
-            self.instructionmap[opcode].store "functioncode",-1
+            self.instructionmap[opcode].store("encoding",encoding.to_i)
+            self.instructionmap[opcode].store("type","j")
+            self.instructionmap[opcode].store("functioncode",-1)
             jtypecount += 1
           end
         end
@@ -105,9 +115,9 @@ class Main
 	File.open(ARGV[i], 'r') do |f1| # Open Rtypes file.
 	while line = f1.gets
             opcode,functioncode,encoding = line.chomp.split("\t")
-            self.instructionmap[opcode].store "encoding",encoding.to_i
-            self.instructionmap[opcode].store "type","r"
-            self.instructionmap[opcode].store "functioncode",functioncode.to_i
+            self.instructionmap[opcode].store("encoding",encoding.to_i)
+            self.instructionmap[opcode].store("type","r")
+            self.instructionmap[opcode].store("functioncode",functioncode.to_i)
             rtypecount += 1
           end
         end
@@ -117,6 +127,7 @@ class Main
     puts color.yellow("---------------------------------------- DONE")
   end
 
+  # Convert DLX files to internal datastructures.
   def processDlxFiles(color)
     puts color.yellow("PROCESSING DLX FILES")
     puts color.yellow("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -125,7 +136,6 @@ class Main
     for i in 0..ARGV.length-1
       if File.extname(ARGV[i]) == ".dlx" # If the file is a .dlx file, we want to parse through it.
         file = File.open(ARGV[i], 'r') do |f1| # Open Itypes file.
-          linearray = {}
           firstline = true
           while line = f1.gets
             if firstline then gotonext = 0
@@ -134,41 +144,57 @@ class Main
             firstline = false
             memoryaddress = memoryaddress + gotonext
             formattedaddress = memoryaddress.to_s(16).rjust(8,"0")
-            linearray.store(formattedaddress, line.chomp.split(" "))
+            self.linestruct[formattedaddress].store("line", line.chomp.split(" "))
+            if (line.chomp.split(" "))[0] == ";"
+              self.linestruct[formattedaddress].store("isComment",true)
+            else self.linestruct[formattedaddress].store("isComment",false)
+            end
           end
-          self.filemap.store(ARGV[i],linearray)
+          self.filemap.store(ARGV[i],self.linestruct)
           puts color.yellow("#{ARGV[i]} file processed.")
-          #puts linearray
+          #puts self.linestruct
         end
       end
     end
     puts color.yellow("---------------------------------------- DONE")
+    #puts self.instructionmap
   end
 
+  # First pass of the assembler in which it scans through the files looking for
+  # labels and once it finds them, adds them and the address at which they occur
+  # into a datastructure known by most as the symbol table.
   def firstPass(color)
     puts color.yellow("FIRST PASS")
     puts color.yellow("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-    self.filemap.each do |item,price|
-      puts color.yellow "symbol table created for #{item}"
+    self.filemap.each do |nameoffile,filebody|
+      filebody.each do |formattedaddress,linestring|
+        # Build symbol tables for each dlx file input
+        if linestring["line"][0] =~ /[a-z][a-zA-Z0-9]*:/
+          self.symboltables[nameoffile].store(linestring["line"][0],formattedaddress)
+        end
+      end
+      puts color.yellow "symbol table created for #{nameoffile}"
     end
     puts color.yellow("---------------------------------------- DONE")
+    #puts self.linestruct
+    #puts self.symboltables
   end
 
-
-  def increment(currentaddress)
-    currentaddress += 4
-  end
-
-  def incrementaddress(currentaddress)
-    i = 0
-    while currentaddress[i] == 0 and i > -1
-      i -= 1
+  # Second pass of the assembler.
+  def secondPass(color)
+    puts color.yellow("SECOND PASS")
+    puts color.yellow("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    self.filemap.each do |nameoffile,filebody|
+      filebody.each do |formattedaddress,linestring|
+        # Build symbol tables for each dlx file input
+        if linestring["line"][0] =~ /[a-z][a-zA-Z0-9]*:/
+          #self.symboltables[nameoffile].store(linestring["line"][0],formattedaddress)
+        end
+      end
+      string = nameoffile.gsub(".dlx",".hex")
+      puts color.yellow "#{string} file written"
     end
-    currentaddress[i] = currentaddress[i] + 4
-  end
-
-  def addresstostring(address)
-    address.join
+    puts color.yellow("---------------------------------------- DONE")
   end
 
   #def parse line
@@ -202,4 +228,6 @@ dlxassembler.validateInputs(nicecolors)
 dlxassembler.initializeInstructionMap(nicecolors)
 dlxassembler.processDlxFiles(nicecolors)
 dlxassembler.firstPass(nicecolors)
+dlxassembler.secondPass(nicecolors)
 dlxassembler.end(nicecolors)
+
